@@ -1,0 +1,135 @@
+function openBulkTranslatorPicker(){
+  const src = el('bulkDefaultSource').value;
+  const tgt = el('bulkDefaultTarget').value;
+  const svc = el('bulkDefaultService').value;
+  
+  if(!src || !tgt || !svc){
+    alert('⚠️ Please select Source Language, Target Language, AND Service Type first.');
+    return;
+  }
+  
+  // Pre-populate the modal selects
+  el('bulkTranslatorSrcLang').value = src;
+  el('bulkTranslatorTgtLang').value = tgt;
+  el('bulkTranslatorService').value = svc;
+  
+  bulkPendingTranslatorIndex = -1;
+  
+  // Open modal
+  el('bulkTranslatorBackdrop').style.display = 'flex';
+  
+  // Immediately load translators
+  setTimeout(() => updateBulkTranslatorList(), 100);
+}
+
+function closeBulkTranslatorPicker(){
+  el('bulkTranslatorBackdrop').style.display = 'none';
+  bulkTranslatorCache = [];
+  bulkPendingTranslatorIndex = -1;
+  el('bulkTranslatorLoadStatus').textContent = '';
+}
+
+function updateBulkTranslatorList(){
+  const src = (el('bulkTranslatorSrcLang').value || '').trim();
+  const tgt = (el('bulkTranslatorTgtLang').value || '').trim();
+  const svc = (el('bulkTranslatorService').value || '').trim();
+  
+  if(!src || !tgt || !svc){
+    el('bulkTranslatorLoadStatus').textContent = '⚠️ Select all three fields above';
+    el('bulkTranslatorListWrap').innerHTML = '<div class="muted-note">Please select Source Language, Target Language, and Service Type.</div>';
+    return;
+  }
+  
+  const status = el('bulkTranslatorLoadStatus');
+  status.textContent = '⏳ Loading translators...';
+  status.style.color = '#6b7280';
+  
+  const listWrap = el('bulkTranslatorListWrap');
+  listWrap.innerHTML = '<div class="muted-note">Loading...</div>';
+  
+  google.script.run
+    .withSuccessHandler(list=>{
+      bulkTranslatorCache = Array.isArray(list) ? list : [];
+      status.textContent = `✓ Found ${bulkTranslatorCache.length} translator(s)`;
+      status.style.color = '#10b981';
+      renderBulkTranslatorList(bulkTranslatorCache);
+    })
+    .withFailureHandler(e=>{
+      status.textContent = '✗ Failed to load translators';
+      status.style.color = '#ef4444';
+      listWrap.innerHTML = `<div class="muted-note" style="color:#ef4444;">❌ Error: ${escapeHtml(e&&e.message?e.message:String(e))}</div>`;
+      bulkTranslatorCache = [];
+    })
+    .getTranslators(src, tgt, svc);
+}
+
+function renderBulkTranslatorList(list){
+  const wrap = el('bulkTranslatorListWrap');
+  
+  if(!list || !list.length){
+    wrap.innerHTML = '<div class="muted-note" style="padding:20px;text-align:center;color:#6b7280;">No translators found for this language pair and service.</div>';
+    return;
+  }
+  
+  let html = `<div style="font-size:12px;color:#6b7280;margin-bottom:10px;"><strong>Select one translator:</strong></div>`;
+  html += '<div class="translator-table-wrap"><table class="translator-table"><thead><tr><th style="width:50px;">Select</th><th style="width:20%;">Name</th><th style="width:25%;">Email</th><th style="width:15%;">Rate</th><th style="width:15%;">Currency</th></tr></thead><tbody>';
+  
+  list.forEach((t, idx)=>{
+    const checked = idx === bulkPendingTranslatorIndex ? 'checked' : '';
+    const isSelf = (t.name || '').toLowerCase() === 'self' && (t.email || '').toLowerCase() === 'self';
+    
+    html += `<tr ${isSelf ? 'style="background:#f3f4f6;"' : ''}>
+      <td style="text-align:center;">
+        <input type="radio" name="bulkTranslatorSelect" value="${idx}" ${checked} onchange="pickBulkTranslatorTemp(${idx})" style="cursor:pointer;transform:scale(1.2);">
+      </td>
+      <td>${escapeHtml(t.name||'')}${isSelf ? ' <span style="color:#06b6d4;font-weight:600;">(Self)</span>' : ''}</td>
+      <td>${escapeHtml(t.email||'')}</td>
+      <td style="font-weight:600;color:var(--primary);">${escapeHtml(t.rate||'')}</td>
+      <td>${escapeHtml(t.currency||'')}</td>
+    </tr>`;
+  });
+  
+  html += '</tbody></table></div>';
+  wrap.innerHTML = html;
+}
+
+function pickBulkTranslatorTemp(idx){
+  bulkPendingTranslatorIndex = idx;
+  document.querySelectorAll('input[name="bulkTranslatorSelect"]').forEach((rb, i)=>{
+    rb.checked = (Number(rb.value) === idx);
+  });
+}
+
+function saveBulkTranslatorSelection(){
+  if(bulkPendingTranslatorIndex < 0 || !bulkTranslatorCache[bulkPendingTranslatorIndex]){
+    alert('⚠️ Please select one translator.');
+    return;
+  }
+  
+  const t = bulkTranslatorCache[bulkPendingTranslatorIndex];
+  bulkDefaultTranslator = t;
+  
+  el('bulkDefaultTranslatorDisplay').value = `${t.name} | ${t.email}`;
+  el('bulkDefaultTranslatorEmail').value = t.email || '';
+  el('bulkDefaultRate').value = t.rate || '';
+  el('bulkDefaultCurrency').value = t.currency || '';
+  
+  // Show success feedback
+  const status = el('bulkTranslatorLoadStatus');
+  status.textContent = `✓ Selected: ${t.name} (${t.email})`;
+  status.style.color = '#10b981';
+  
+  setTimeout(() => {
+    closeBulkTranslatorPicker();
+  }, 500);
+}
+
+function clearBulkTranslator(){
+  bulkDefaultTranslator = null;
+  el('bulkDefaultTranslatorDisplay').value = '';
+  el('bulkDefaultTranslatorEmail').value = '';
+  el('bulkDefaultRate').value = '';
+  el('bulkDefaultCurrency').value = '';
+  bulkPendingTranslatorIndex = -1;
+  el('bulkTranslatorLoadStatus').textContent = '';
+}
